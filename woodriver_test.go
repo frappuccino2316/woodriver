@@ -222,6 +222,258 @@ func TestScreenshot(t *testing.T) {
 	}
 }
 
+// --- Phase 2: Actions API ---
+
+func TestActionsMouseClick(t *testing.T) {
+	var gotBody map[string]any
+
+	srv := newMockServer(t, map[string]http.HandlerFunc{
+		"POST /session/test-session-id/actions": func(w http.ResponseWriter, r *http.Request) {
+			json.NewDecoder(r.Body).Decode(&gotBody)
+			respond(w, nil)
+		},
+		"DELETE /session/test-session-id": func(w http.ResponseWriter, r *http.Request) {
+			respond(w, nil)
+		},
+	})
+	defer srv.Close()
+
+	sess, _ := woodriver.New(srv.URL).NewSession(woodriver.ChromeCapabilities())
+	defer sess.Quit()
+
+	err := sess.Actions().
+		MouseMove(100, 200).
+		MouseClick(woodriver.MouseLeft).
+		Perform()
+	if err != nil {
+		t.Fatalf("Actions.Perform: %v", err)
+	}
+
+	acts, _ := gotBody["actions"].([]any)
+	if len(acts) == 0 {
+		t.Fatal("expected actions in payload")
+	}
+	first := acts[0].(map[string]any)
+	if first["type"] != "pointer" {
+		t.Errorf("expected pointer action, got %v", first["type"])
+	}
+}
+
+func TestActionsKeyboard(t *testing.T) {
+	var gotBody map[string]any
+
+	srv := newMockServer(t, map[string]http.HandlerFunc{
+		"POST /session/test-session-id/actions": func(w http.ResponseWriter, r *http.Request) {
+			json.NewDecoder(r.Body).Decode(&gotBody)
+			respond(w, nil)
+		},
+		"DELETE /session/test-session-id": func(w http.ResponseWriter, r *http.Request) {
+			respond(w, nil)
+		},
+	})
+	defer srv.Close()
+
+	sess, _ := woodriver.New(srv.URL).NewSession(woodriver.ChromeCapabilities())
+	defer sess.Quit()
+
+	err := sess.Actions().
+		KeyDown(woodriver.KeyControl).
+		KeySendKeys("a").
+		KeyUp(woodriver.KeyControl).
+		Perform()
+	if err != nil {
+		t.Fatalf("Actions keyboard: %v", err)
+	}
+
+	acts, _ := gotBody["actions"].([]any)
+	if len(acts) == 0 {
+		t.Fatal("expected actions in payload")
+	}
+	keyAction := acts[0].(map[string]any)
+	if keyAction["type"] != "key" {
+		t.Errorf("expected key action, got %v", keyAction["type"])
+	}
+}
+
+func TestActionsScroll(t *testing.T) {
+	var gotBody map[string]any
+
+	srv := newMockServer(t, map[string]http.HandlerFunc{
+		"POST /session/test-session-id/actions": func(w http.ResponseWriter, r *http.Request) {
+			json.NewDecoder(r.Body).Decode(&gotBody)
+			respond(w, nil)
+		},
+		"DELETE /session/test-session-id": func(w http.ResponseWriter, r *http.Request) {
+			respond(w, nil)
+		},
+	})
+	defer srv.Close()
+
+	sess, _ := woodriver.New(srv.URL).NewSession(woodriver.ChromeCapabilities())
+	defer sess.Quit()
+
+	err := sess.Actions().Scroll(0, 0, 0, 300).Perform()
+	if err != nil {
+		t.Fatalf("Actions.Scroll: %v", err)
+	}
+
+	acts, _ := gotBody["actions"].([]any)
+	if len(acts) == 0 {
+		t.Fatal("expected actions in payload")
+	}
+	wheelAction := acts[0].(map[string]any)
+	if wheelAction["type"] != "wheel" {
+		t.Errorf("expected wheel action, got %v", wheelAction["type"])
+	}
+}
+
+// --- Phase 2: Window operations ---
+
+func TestWindowHandles(t *testing.T) {
+	srv := newMockServer(t, map[string]http.HandlerFunc{
+		"GET /session/test-session-id/window/handles": func(w http.ResponseWriter, r *http.Request) {
+			respond(w, []string{"handle-1", "handle-2"})
+		},
+		"DELETE /session/test-session-id": func(w http.ResponseWriter, r *http.Request) {
+			respond(w, nil)
+		},
+	})
+	defer srv.Close()
+
+	sess, _ := woodriver.New(srv.URL).NewSession(woodriver.ChromeCapabilities())
+	defer sess.Quit()
+
+	handles, err := sess.WindowHandles()
+	if err != nil {
+		t.Fatalf("WindowHandles: %v", err)
+	}
+	if len(handles) != 2 {
+		t.Errorf("len(handles) = %d, want 2", len(handles))
+	}
+}
+
+func TestNewWindow(t *testing.T) {
+	srv := newMockServer(t, map[string]http.HandlerFunc{
+		"POST /session/test-session-id/window/new": func(w http.ResponseWriter, r *http.Request) {
+			respond(w, map[string]any{"handle": "new-handle", "type": "tab"})
+		},
+		"DELETE /session/test-session-id": func(w http.ResponseWriter, r *http.Request) {
+			respond(w, nil)
+		},
+	})
+	defer srv.Close()
+
+	sess, _ := woodriver.New(srv.URL).NewSession(woodriver.ChromeCapabilities())
+	defer sess.Quit()
+
+	wh, err := sess.NewWindow(woodriver.WindowTypeTab)
+	if err != nil {
+		t.Fatalf("NewWindow: %v", err)
+	}
+	if wh.Handle != "new-handle" {
+		t.Errorf("handle = %q, want %q", wh.Handle, "new-handle")
+	}
+	if wh.Type != "tab" {
+		t.Errorf("type = %q, want %q", wh.Type, "tab")
+	}
+}
+
+func TestMaximize(t *testing.T) {
+	called := false
+	srv := newMockServer(t, map[string]http.HandlerFunc{
+		"POST /session/test-session-id/window/maximize": func(w http.ResponseWriter, r *http.Request) {
+			called = true
+			respond(w, map[string]any{"x": 0, "y": 0, "width": 1920, "height": 1080})
+		},
+		"DELETE /session/test-session-id": func(w http.ResponseWriter, r *http.Request) {
+			respond(w, nil)
+		},
+	})
+	defer srv.Close()
+
+	sess, _ := woodriver.New(srv.URL).NewSession(woodriver.ChromeCapabilities())
+	defer sess.Quit()
+
+	if err := sess.Maximize(); err != nil {
+		t.Fatalf("Maximize: %v", err)
+	}
+	if !called {
+		t.Error("maximize endpoint was not called")
+	}
+}
+
+func TestSwitchToFrame(t *testing.T) {
+	var gotBody map[string]any
+
+	srv := newMockServer(t, map[string]http.HandlerFunc{
+		"POST /session/test-session-id/frame": func(w http.ResponseWriter, r *http.Request) {
+			json.NewDecoder(r.Body).Decode(&gotBody)
+			respond(w, nil)
+		},
+		"DELETE /session/test-session-id": func(w http.ResponseWriter, r *http.Request) {
+			respond(w, nil)
+		},
+	})
+	defer srv.Close()
+
+	sess, _ := woodriver.New(srv.URL).NewSession(woodriver.ChromeCapabilities())
+	defer sess.Quit()
+
+	if err := sess.SwitchToFrame(0); err != nil {
+		t.Fatalf("SwitchToFrame: %v", err)
+	}
+	if gotBody["id"].(float64) != 0 {
+		t.Errorf("frame id = %v, want 0", gotBody["id"])
+	}
+}
+
+func TestAlertAcceptDismiss(t *testing.T) {
+	acceptCalled, dismissCalled := false, false
+
+	srv := newMockServer(t, map[string]http.HandlerFunc{
+		"GET /session/test-session-id/alert/text": func(w http.ResponseWriter, r *http.Request) {
+			respond(w, "Are you sure?")
+		},
+		"POST /session/test-session-id/alert/accept": func(w http.ResponseWriter, r *http.Request) {
+			acceptCalled = true
+			respond(w, nil)
+		},
+		"POST /session/test-session-id/alert/dismiss": func(w http.ResponseWriter, r *http.Request) {
+			dismissCalled = true
+			respond(w, nil)
+		},
+		"DELETE /session/test-session-id": func(w http.ResponseWriter, r *http.Request) {
+			respond(w, nil)
+		},
+	})
+	defer srv.Close()
+
+	sess, _ := woodriver.New(srv.URL).NewSession(woodriver.ChromeCapabilities())
+	defer sess.Quit()
+
+	text, err := sess.AlertText()
+	if err != nil {
+		t.Fatalf("AlertText: %v", err)
+	}
+	if text != "Are you sure?" {
+		t.Errorf("AlertText = %q, want %q", text, "Are you sure?")
+	}
+
+	if err := sess.AcceptAlert(); err != nil {
+		t.Fatalf("AcceptAlert: %v", err)
+	}
+	if err := sess.DismissAlert(); err != nil {
+		t.Fatalf("DismissAlert: %v", err)
+	}
+
+	if !acceptCalled {
+		t.Error("accept endpoint not called")
+	}
+	if !dismissCalled {
+		t.Error("dismiss endpoint not called")
+	}
+}
+
 // isWebDriverError uses errors.As semantics.
 func isWebDriverError(err error, target **woodriver.WebDriverError) bool {
 	if err == nil {

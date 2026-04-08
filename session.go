@@ -211,7 +211,8 @@ func New(driverURL string, opts ...Option) *Driver {
 }
 
 // NewSession starts a new browser session with the given capabilities.
-func (d *Driver) NewSession(caps Capabilities) (Session, error) {
+// The returned interface satisfies both Session and WindowOps.
+func (d *Driver) NewSession(caps Capabilities) (WindowOps, error) {
 	raw, err := d.t.post("/session", caps.toW3C())
 	if err != nil {
 		return nil, err
