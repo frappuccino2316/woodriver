@@ -48,6 +48,13 @@ type WindowOps interface {
 	AlertText() (string, error)
 	SendAlertText(text string) error
 
+	// Cookies
+	Cookies() ([]Cookie, error)
+	Cookie(name string) (Cookie, error)
+	AddCookie(c Cookie) error
+	DeleteCookie(name string) error
+	DeleteAllCookies() error
+
 	// Actions
 	Actions() *Actions
 }
