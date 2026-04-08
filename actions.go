@@ -175,7 +175,7 @@ func (a *Actions) Perform() error {
 		})
 	}
 
-	_, err := a.sess.t.post(a.sess.path("/actions"), map[string]any{"actions": actions})
+	_, err := a.sess.post(a.sess.path("/actions"), map[string]any{"actions": actions})
 	if err != nil {
 		return err
 	}
@@ -189,6 +189,6 @@ func (a *Actions) Perform() error {
 
 // Release cancels any currently active actions in the browser.
 func (a *Actions) Release() error {
-	_, err := a.sess.t.delete(a.sess.path("/actions"))
+	_, err := a.sess.delete(a.sess.path("/actions"))
 	return err
 }

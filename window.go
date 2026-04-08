@@ -65,7 +65,7 @@ var _ WindowOps = (*session)(nil)
 // --- window handle methods ---
 
 func (s *session) CurrentWindowHandle() (string, error) {
-	raw, err := s.t.get(s.path("/window"))
+	raw, err := s.get(s.path("/window"))
 	if err != nil {
 		return "", err
 	}
@@ -74,7 +74,7 @@ func (s *session) CurrentWindowHandle() (string, error) {
 }
 
 func (s *session) WindowHandles() ([]string, error) {
-	raw, err := s.t.get(s.path("/window/handles"))
+	raw, err := s.get(s.path("/window/handles"))
 	if err != nil {
 		return nil, err
 	}
@@ -83,12 +83,12 @@ func (s *session) WindowHandles() ([]string, error) {
 }
 
 func (s *session) SwitchToWindow(handle string) error {
-	_, err := s.t.post(s.path("/window"), map[string]any{"handle": handle})
+	_, err := s.post(s.path("/window"), map[string]any{"handle": handle})
 	return err
 }
 
 func (s *session) NewWindow(t WindowType) (WindowHandle, error) {
-	raw, err := s.t.post(s.path("/window/new"), map[string]any{"type": string(t)})
+	raw, err := s.post(s.path("/window/new"), map[string]any{"type": string(t)})
 	if err != nil {
 		return WindowHandle{}, err
 	}
@@ -99,17 +99,17 @@ func (s *session) NewWindow(t WindowType) (WindowHandle, error) {
 // --- window state ---
 
 func (s *session) Maximize() error {
-	_, err := s.t.post(s.path("/window/maximize"), map[string]any{})
+	_, err := s.post(s.path("/window/maximize"), map[string]any{})
 	return err
 }
 
 func (s *session) Minimize() error {
-	_, err := s.t.post(s.path("/window/minimize"), map[string]any{})
+	_, err := s.post(s.path("/window/minimize"), map[string]any{})
 	return err
 }
 
 func (s *session) Fullscreen() error {
-	_, err := s.t.post(s.path("/window/fullscreen"), map[string]any{})
+	_, err := s.post(s.path("/window/fullscreen"), map[string]any{})
 	return err
 }
 
@@ -138,29 +138,29 @@ func (s *session) SwitchToFrame(id any) error {
 	default:
 		return fmt.Errorf("SwitchToFrame: unsupported id type %T", id)
 	}
-	_, err := s.t.post(s.path("/frame"), payload)
+	_, err := s.post(s.path("/frame"), payload)
 	return err
 }
 
 func (s *session) SwitchToParentFrame() error {
-	_, err := s.t.post(s.path("/frame/parent"), map[string]any{})
+	_, err := s.post(s.path("/frame/parent"), map[string]any{})
 	return err
 }
 
 // --- alert / dialog ---
 
 func (s *session) AcceptAlert() error {
-	_, err := s.t.post(s.path("/alert/accept"), map[string]any{})
+	_, err := s.post(s.path("/alert/accept"), map[string]any{})
 	return err
 }
 
 func (s *session) DismissAlert() error {
-	_, err := s.t.post(s.path("/alert/dismiss"), map[string]any{})
+	_, err := s.post(s.path("/alert/dismiss"), map[string]any{})
 	return err
 }
 
 func (s *session) AlertText() (string, error) {
-	raw, err := s.t.get(s.path("/alert/text"))
+	raw, err := s.get(s.path("/alert/text"))
 	if err != nil {
 		return "", err
 	}
@@ -169,6 +169,6 @@ func (s *session) AlertText() (string, error) {
 }
 
 func (s *session) SendAlertText(text string) error {
-	_, err := s.t.post(s.path("/alert/text"), map[string]any{"text": text})
+	_, err := s.post(s.path("/alert/text"), map[string]any{"text": text})
 	return err
 }

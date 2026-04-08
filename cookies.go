@@ -64,7 +64,7 @@ func cookieFromJSON(cj cookieJSON) Cookie {
 
 // Cookies returns all cookies visible to the current page.
 func (s *session) Cookies() ([]Cookie, error) {
-	raw, err := s.t.get(s.path("/cookie"))
+	raw, err := s.get(s.path("/cookie"))
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +81,7 @@ func (s *session) Cookies() ([]Cookie, error) {
 
 // Cookie returns the named cookie.
 func (s *session) Cookie(name string) (Cookie, error) {
-	raw, err := s.t.get(s.path("/cookie/" + name))
+	raw, err := s.get(s.path("/cookie/" + name))
 	if err != nil {
 		return Cookie{}, err
 	}
@@ -94,18 +94,18 @@ func (s *session) Cookie(name string) (Cookie, error) {
 
 // AddCookie adds a cookie to the current page's domain.
 func (s *session) AddCookie(c Cookie) error {
-	_, err := s.t.post(s.path("/cookie"), map[string]any{"cookie": c.toJSON()})
+	_, err := s.post(s.path("/cookie"), map[string]any{"cookie": c.toJSON()})
 	return err
 }
 
 // DeleteCookie removes the named cookie.
 func (s *session) DeleteCookie(name string) error {
-	_, err := s.t.delete(s.path("/cookie/" + name))
+	_, err := s.delete(s.path("/cookie/" + name))
 	return err
 }
 
 // DeleteAllCookies removes all cookies visible to the current page.
 func (s *session) DeleteAllCookies() error {
-	_, err := s.t.delete(s.path("/cookie"))
+	_, err := s.delete(s.path("/cookie"))
 	return err
 }

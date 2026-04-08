@@ -3,9 +3,12 @@ package woodriver
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/frappuccino2316/woodriver/internal/transport"
 )
 
 const defaultPollInterval = 200 * time.Millisecond
@@ -44,22 +47,47 @@ type Session interface {
 // session is the concrete implementation of Session.
 type session struct {
 	id string
-	t  *transport
+	t  *transport.Transport
 }
 
 func (s *session) path(suffix string) string {
 	return fmt.Sprintf("/session/%s%s", s.id, suffix)
 }
 
+// liftErr converts a transport.Error into a *WebDriverError so callers only
+// deal with the public error type.
+func liftErr(err error) error {
+	var te *transport.Error
+	if errors.As(err, &te) {
+		return &WebDriverError{Code: te.Code, Message: te.Message}
+	}
+	return err
+}
+
+func (s *session) get(path string) (json.RawMessage, error) {
+	raw, err := s.t.Get(path)
+	return raw, liftErr(err)
+}
+
+func (s *session) post(path string, body any) (json.RawMessage, error) {
+	raw, err := s.t.Post(path, body)
+	return raw, liftErr(err)
+}
+
+func (s *session) delete(path string) (json.RawMessage, error) {
+	raw, err := s.t.Delete(path)
+	return raw, liftErr(err)
+}
+
 // Navigate navigates to the given URL.
 func (s *session) Navigate(url string) error {
-	_, err := s.t.post(s.path("/url"), map[string]any{"url": url})
+	_, err := s.post(s.path("/url"), map[string]any{"url": url})
 	return err
 }
 
 // CurrentURL returns the current page URL.
 func (s *session) CurrentURL() (string, error) {
-	raw, err := s.t.get(s.path("/url"))
+	raw, err := s.get(s.path("/url"))
 	if err != nil {
 		return "", err
 	}
@@ -69,7 +97,7 @@ func (s *session) CurrentURL() (string, error) {
 
 // Title returns the current page title.
 func (s *session) Title() (string, error) {
-	raw, err := s.t.get(s.path("/title"))
+	raw, err := s.get(s.path("/title"))
 	if err != nil {
 		return "", err
 	}
@@ -79,19 +107,19 @@ func (s *session) Title() (string, error) {
 
 // Back navigates backward in the browser history.
 func (s *session) Back() error {
-	_, err := s.t.post(s.path("/back"), map[string]any{})
+	_, err := s.post(s.path("/back"), map[string]any{})
 	return err
 }
 
 // Forward navigates forward in the browser history.
 func (s *session) Forward() error {
-	_, err := s.t.post(s.path("/forward"), map[string]any{})
+	_, err := s.post(s.path("/forward"), map[string]any{})
 	return err
 }
 
 // Refresh reloads the current page.
 func (s *session) Refresh() error {
-	_, err := s.t.post(s.path("/refresh"), map[string]any{})
+	_, err := s.post(s.path("/refresh"), map[string]any{})
 	return err
 }
 
@@ -110,7 +138,7 @@ func (s *session) Execute(script string, args ...any) (any, error) {
 	if args == nil {
 		args = []any{}
 	}
-	raw, err := s.t.post(s.path("/execute/sync"), map[string]any{
+	raw, err := s.post(s.path("/execute/sync"), map[string]any{
 		"script": script,
 		"args":   args,
 	})
@@ -126,7 +154,7 @@ func (s *session) ExecuteAsync(script string, args ...any) (any, error) {
 	if args == nil {
 		args = []any{}
 	}
-	raw, err := s.t.post(s.path("/execute/async"), map[string]any{
+	raw, err := s.post(s.path("/execute/async"), map[string]any{
 		"script": script,
 		"args":   args,
 	})
@@ -139,7 +167,7 @@ func (s *session) ExecuteAsync(script string, args ...any) (any, error) {
 
 // Screenshot captures the current viewport as a PNG and returns the raw bytes.
 func (s *session) Screenshot() ([]byte, error) {
-	raw, err := s.t.get(s.path("/screenshot"))
+	raw, err := s.get(s.path("/screenshot"))
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +180,7 @@ func (s *session) Screenshot() ([]byte, error) {
 
 // WindowRect returns the current window position and size.
 func (s *session) WindowRect() (Rect, error) {
-	raw, err := s.t.get(s.path("/window/rect"))
+	raw, err := s.get(s.path("/window/rect"))
 	if err != nil {
 		return Rect{}, err
 	}
@@ -162,7 +190,7 @@ func (s *session) WindowRect() (Rect, error) {
 
 // SetWindowRect sets the window position and size.
 func (s *session) SetWindowRect(rect Rect) error {
-	_, err := s.t.post(s.path("/window/rect"), rect)
+	_, err := s.post(s.path("/window/rect"), rect)
 	return err
 }
 
@@ -173,19 +201,19 @@ func (s *session) Wait(timeout time.Duration) *Waiter {
 
 // Close closes the current browser window (not the session).
 func (s *session) Close() error {
-	_, err := s.t.delete(s.path("/window"))
+	_, err := s.delete(s.path("/window"))
 	return err
 }
 
 // Quit deletes the entire session.
 func (s *session) Quit() error {
-	_, err := s.t.delete(s.path(""))
+	_, err := s.delete(s.path(""))
 	return err
 }
 
 // Driver creates and manages browser sessions.
 type Driver struct {
-	t *transport
+	t *transport.Transport
 }
 
 // Option configures a Driver.
@@ -193,16 +221,13 @@ type Option func(*Driver)
 
 // WithHTTPClient sets a custom HTTP client.
 func WithHTTPClient(c *http.Client) Option {
-	return func(d *Driver) { d.t.client = c }
+	return func(d *Driver) { d.t.Client = c }
 }
 
 // New creates a Driver that communicates with the WebDriver server at driverURL.
 func New(driverURL string, opts ...Option) *Driver {
 	d := &Driver{
-		t: &transport{
-			base:   driverURL,
-			client: &http.Client{Timeout: 30 * time.Second},
-		},
+		t: transport.New(driverURL, &http.Client{Timeout: 30 * time.Second}),
 	}
 	for _, o := range opts {
 		o(d)
@@ -213,9 +238,9 @@ func New(driverURL string, opts ...Option) *Driver {
 // NewSession starts a new browser session with the given capabilities.
 // The returned interface satisfies both Session and WindowOps.
 func (d *Driver) NewSession(caps Capabilities) (WindowOps, error) {
-	raw, err := d.t.post("/session", caps.toW3C())
+	raw, err := d.t.Post("/session", caps.toW3C())
 	if err != nil {
-		return nil, err
+		return nil, liftErr(err)
 	}
 
 	var result struct {

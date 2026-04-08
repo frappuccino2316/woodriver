@@ -36,22 +36,22 @@ func (e *element) path(suffix string) string {
 }
 
 func (e *element) Click() error {
-	_, err := e.sess.t.post(e.path("/click"), map[string]any{})
+	_, err := e.sess.post(e.path("/click"), map[string]any{})
 	return err
 }
 
 func (e *element) SendKeys(text string) error {
-	_, err := e.sess.t.post(e.path("/value"), map[string]any{"text": text})
+	_, err := e.sess.post(e.path("/value"), map[string]any{"text": text})
 	return err
 }
 
 func (e *element) Clear() error {
-	_, err := e.sess.t.post(e.path("/clear"), map[string]any{})
+	_, err := e.sess.post(e.path("/clear"), map[string]any{})
 	return err
 }
 
 func (e *element) Text() (string, error) {
-	raw, err := e.sess.t.get(e.path("/text"))
+	raw, err := e.sess.get(e.path("/text"))
 	if err != nil {
 		return "", err
 	}
@@ -60,7 +60,7 @@ func (e *element) Text() (string, error) {
 }
 
 func (e *element) Attribute(name string) (string, error) {
-	raw, err := e.sess.t.get(e.path("/attribute/" + name))
+	raw, err := e.sess.get(e.path("/attribute/" + name))
 	if err != nil {
 		return "", err
 	}
@@ -69,7 +69,7 @@ func (e *element) Attribute(name string) (string, error) {
 }
 
 func (e *element) Property(name string) (any, error) {
-	raw, err := e.sess.t.get(e.path("/property/" + name))
+	raw, err := e.sess.get(e.path("/property/" + name))
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +78,7 @@ func (e *element) Property(name string) (any, error) {
 }
 
 func (e *element) IsDisplayed() (bool, error) {
-	raw, err := e.sess.t.get(e.path("/displayed"))
+	raw, err := e.sess.get(e.path("/displayed"))
 	if err != nil {
 		return false, err
 	}
@@ -87,7 +87,7 @@ func (e *element) IsDisplayed() (bool, error) {
 }
 
 func (e *element) IsEnabled() (bool, error) {
-	raw, err := e.sess.t.get(e.path("/enabled"))
+	raw, err := e.sess.get(e.path("/enabled"))
 	if err != nil {
 		return false, err
 	}
@@ -96,7 +96,7 @@ func (e *element) IsEnabled() (bool, error) {
 }
 
 func (e *element) IsSelected() (bool, error) {
-	raw, err := e.sess.t.get(e.path("/selected"))
+	raw, err := e.sess.get(e.path("/selected"))
 	if err != nil {
 		return false, err
 	}
@@ -105,7 +105,7 @@ func (e *element) IsSelected() (bool, error) {
 }
 
 func (e *element) TagName() (string, error) {
-	raw, err := e.sess.t.get(e.path("/name"))
+	raw, err := e.sess.get(e.path("/name"))
 	if err != nil {
 		return "", err
 	}
@@ -114,7 +114,7 @@ func (e *element) TagName() (string, error) {
 }
 
 func (e *element) Rect() (Rect, error) {
-	raw, err := e.sess.t.get(e.path("/rect"))
+	raw, err := e.sess.get(e.path("/rect"))
 	if err != nil {
 		return Rect{}, err
 	}
@@ -132,7 +132,7 @@ func (e *element) FindElements(by By, value string) ([]Element, error) {
 
 // findElement performs a POST to locate a single element.
 func findElement(sess *session, path string, by By, value string) (Element, error) {
-	raw, err := sess.t.post(path, map[string]any{"using": string(by), "value": value})
+	raw, err := sess.post(path, map[string]any{"using": string(by), "value": value})
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +145,7 @@ func findElement(sess *session, path string, by By, value string) (Element, erro
 
 // findElements performs a POST to locate multiple elements.
 func findElements(sess *session, path string, by By, value string) ([]Element, error) {
-	raw, err := sess.t.post(path, map[string]any{"using": string(by), "value": value})
+	raw, err := sess.post(path, map[string]any{"using": string(by), "value": value})
 	if err != nil {
 		return nil, err
 	}
