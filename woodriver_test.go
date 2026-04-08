@@ -1,9 +1,12 @@
 package woodriver_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -472,6 +475,277 @@ func TestAlertAcceptDismiss(t *testing.T) {
 	if !dismissCalled {
 		t.Error("dismiss endpoint not called")
 	}
+}
+
+// --- Phase 3: Capabilities ---
+
+func TestChromeCapabilitiesHeadlessPreset(t *testing.T) {
+	caps := woodriver.HeadlessChrome()
+	if caps.BrowserName != "chrome" {
+		t.Errorf("BrowserName = %q, want chrome", caps.BrowserName)
+	}
+	opts, ok := caps.Extra["goog:chromeOptions"].(map[string]any)
+	if !ok {
+		t.Fatal("goog:chromeOptions missing")
+	}
+	args, _ := opts["args"].([]string)
+	hasHeadless := false
+	hasNoSandbox := false
+	for _, a := range args {
+		if a == "--headless=new" {
+			hasHeadless = true
+		}
+		if a == "--no-sandbox" {
+			hasNoSandbox = true
+		}
+	}
+	if !hasHeadless {
+		t.Error("expected --headless=new in args")
+	}
+	if !hasNoSandbox {
+		t.Error("expected --no-sandbox in args")
+	}
+}
+
+func TestChromeCapabilitiesWithProxy(t *testing.T) {
+	caps := woodriver.ChromeCapabilities(
+		woodriver.WithProxy(woodriver.ManualProxy("proxy.example.com:8080")),
+	)
+	proxy, ok := caps.Extra["proxy"].(*woodriver.Proxy)
+	if !ok || proxy == nil {
+		t.Fatal("proxy not set in capabilities")
+	}
+	if proxy.HTTPProxy != "proxy.example.com:8080" {
+		t.Errorf("HTTPProxy = %q", proxy.HTTPProxy)
+	}
+}
+
+func TestChromeCapabilitiesWithMobileEmulation(t *testing.T) {
+	caps := woodriver.ChromeCapabilities(
+		woodriver.EmulateDevice(woodriver.MobileDevice{DeviceName: "iPhone 12"}),
+	)
+	opts := caps.Extra["goog:chromeOptions"].(map[string]any)
+	em, ok := opts["mobileEmulation"].(map[string]any)
+	if !ok {
+		t.Fatal("mobileEmulation missing")
+	}
+	if em["deviceName"] != "iPhone 12" {
+		t.Errorf("deviceName = %v", em["deviceName"])
+	}
+}
+
+func TestFirefoxCapabilitiesWithPrefs(t *testing.T) {
+	caps := woodriver.FirefoxCapabilities(
+		woodriver.FirefoxHeadless(),
+		woodriver.FirefoxPref("browser.startup.homepage", "about:blank"),
+	)
+	opts := caps.Extra["moz:firefoxOptions"].(map[string]any)
+	prefs, ok := opts["prefs"].(map[string]any)
+	if !ok {
+		t.Fatal("prefs missing")
+	}
+	if prefs["browser.startup.homepage"] != "about:blank" {
+		t.Errorf("pref value = %v", prefs["browser.startup.homepage"])
+	}
+}
+
+// --- Phase 3: Cookies ---
+
+func TestCookies(t *testing.T) {
+	expiry := int64(9999999999)
+	srv := newMockServer(t, map[string]http.HandlerFunc{
+		"GET /session/test-session-id/cookie": func(w http.ResponseWriter, r *http.Request) {
+			respond(w, []map[string]any{
+				{"name": "session", "value": "abc123", "expiry": expiry},
+				{"name": "lang", "value": "ja"},
+			})
+		},
+		"DELETE /session/test-session-id": func(w http.ResponseWriter, r *http.Request) {
+			respond(w, nil)
+		},
+	})
+	defer srv.Close()
+
+	sess, _ := woodriver.New(srv.URL).NewSession(woodriver.ChromeCapabilities())
+	defer sess.Quit()
+
+	cookies, err := sess.Cookies()
+	if err != nil {
+		t.Fatalf("Cookies: %v", err)
+	}
+	if len(cookies) != 2 {
+		t.Fatalf("len(cookies) = %d, want 2", len(cookies))
+	}
+	if cookies[0].Name != "session" || cookies[0].Value != "abc123" {
+		t.Errorf("cookie[0] = %+v", cookies[0])
+	}
+}
+
+func TestAddAndDeleteCookie(t *testing.T) {
+	addCalled, deleteCalled := false, false
+	var addedCookie map[string]any
+
+	srv := newMockServer(t, map[string]http.HandlerFunc{
+		"POST /session/test-session-id/cookie": func(w http.ResponseWriter, r *http.Request) {
+			addCalled = true
+			var body map[string]any
+			json.NewDecoder(r.Body).Decode(&body)
+			addedCookie = body["cookie"].(map[string]any)
+			respond(w, nil)
+		},
+		"DELETE /session/test-session-id/cookie/mycookie": func(w http.ResponseWriter, r *http.Request) {
+			deleteCalled = true
+			respond(w, nil)
+		},
+		"DELETE /session/test-session-id": func(w http.ResponseWriter, r *http.Request) {
+			respond(w, nil)
+		},
+	})
+	defer srv.Close()
+
+	sess, _ := woodriver.New(srv.URL).NewSession(woodriver.ChromeCapabilities())
+	defer sess.Quit()
+
+	if err := sess.AddCookie(woodriver.Cookie{Name: "mycookie", Value: "myvalue", Secure: true}); err != nil {
+		t.Fatalf("AddCookie: %v", err)
+	}
+	if !addCalled {
+		t.Error("add cookie endpoint not called")
+	}
+	if addedCookie["name"] != "mycookie" {
+		t.Errorf("cookie name = %v", addedCookie["name"])
+	}
+
+	if err := sess.DeleteCookie("mycookie"); err != nil {
+		t.Fatalf("DeleteCookie: %v", err)
+	}
+	if !deleteCalled {
+		t.Error("delete cookie endpoint not called")
+	}
+}
+
+// --- Phase 3: SessionPool ---
+
+func TestSessionPoolAcquireRelease(t *testing.T) {
+	const poolSize = 3
+	srv := newMockServer(t, map[string]http.HandlerFunc{
+		"DELETE /session/test-session-id": func(w http.ResponseWriter, r *http.Request) {
+			respond(w, nil)
+		},
+	})
+	defer srv.Close()
+
+	pool, err := woodriver.NewSessionPool(context.Background(), woodriver.New(srv.URL), poolSize, woodriver.ChromeCapabilities())
+	if err != nil {
+		t.Fatalf("NewSessionPool: %v", err)
+	}
+
+	if pool.Cap() != poolSize {
+		t.Errorf("Cap = %d, want %d", pool.Cap(), poolSize)
+	}
+
+	// Acquire all sessions.
+	sessions := make([]woodriver.WindowOps, poolSize)
+	for i := range sessions {
+		s, err := pool.Acquire(context.Background())
+		if err != nil {
+			t.Fatalf("Acquire[%d]: %v", i, err)
+		}
+		sessions[i] = s
+	}
+
+	if pool.Len() != 0 {
+		t.Errorf("Len = %d after acquiring all, want 0", pool.Len())
+	}
+
+	// Release all.
+	for _, s := range sessions {
+		pool.Release(s)
+	}
+
+	if pool.Len() != poolSize {
+		t.Errorf("Len = %d after releasing all, want %d", pool.Len(), poolSize)
+	}
+
+	if err := pool.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
+func TestSessionPoolConcurrent(t *testing.T) {
+	const poolSize = 3
+	const workers = 9
+
+	var peak int64
+
+	srv := newMockServer(t, map[string]http.HandlerFunc{
+		"GET /session/test-session-id/title": func(w http.ResponseWriter, r *http.Request) {
+			respond(w, "Test")
+		},
+		"DELETE /session/test-session-id": func(w http.ResponseWriter, r *http.Request) {
+			respond(w, nil)
+		},
+	})
+	defer srv.Close()
+
+	pool, err := woodriver.NewSessionPool(context.Background(), woodriver.New(srv.URL), poolSize, woodriver.ChromeCapabilities())
+	if err != nil {
+		t.Fatalf("NewSessionPool: %v", err)
+	}
+	defer pool.Close()
+
+	var wg sync.WaitGroup
+	var inUse int64
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sess, err := pool.Acquire(context.Background())
+			if err != nil {
+				t.Errorf("Acquire: %v", err)
+				return
+			}
+			cur := atomic.AddInt64(&inUse, 1)
+			if cur > peak {
+				atomic.StoreInt64(&peak, cur)
+			}
+			// Simulate work.
+			sess.Title()
+			atomic.AddInt64(&inUse, -1)
+			pool.Release(sess)
+		}()
+	}
+	wg.Wait()
+
+	if peak > int64(poolSize) {
+		t.Errorf("peak concurrent sessions = %d, exceeds pool size %d", peak, poolSize)
+	}
+}
+
+func TestSessionPoolContextCancel(t *testing.T) {
+	srv := newMockServer(t, map[string]http.HandlerFunc{
+		"DELETE /session/test-session-id": func(w http.ResponseWriter, r *http.Request) {
+			respond(w, nil)
+		},
+	})
+	defer srv.Close()
+
+	// Pool of 1 — acquire it, then try to acquire again with a cancelled context.
+	pool, _ := woodriver.NewSessionPool(context.Background(), woodriver.New(srv.URL), 1, woodriver.ChromeCapabilities())
+	defer pool.Close()
+
+	sess, _ := pool.Acquire(context.Background())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := pool.Acquire(ctx)
+	if err == nil {
+		t.Fatal("expected context error when pool is exhausted")
+	}
+
+	pool.Release(sess)
 }
 
 // isWebDriverError uses errors.As semantics.
